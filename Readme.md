@@ -19,48 +19,43 @@ It allows developers to define entities using Python dictionaries (or class-like
 
 ## 📦 Installation
 
+```bash
 git clone https://github.com/Dhruv251004/yourdb
 cd yourdb
 pip install .
+```
+
 
 ## 🏁 Quickstart
 
-
-<pre>
+```python
 from yourdb.yourdb import YourDB
 
-### Create or connect to a DB
-
+# Create or connect to a DB
 db = YourDB("my_database")
 
-### Define entity schema (like a table schema)
-
+# Define entity schema (like a table schema)
 schema = {
-"id": int,
-"name": str,
-"is_active": bool
+    "id": int,
+    "name": str,
+    "is_active": bool
 }
 db.create_entity("users", schema)
 
-### Insert data
-
+# Insert data
 user1 = {"id": 1, "name": "Alice", "is_active": True}
 db.insert_into("users", user1)
 
-### Query data
-
+# Query data
 results = db.select_from("users", lambda u: u["is_active"])
 print(results)
 
-### Update data
+# Update data
+db.update_entity("users", lambda u: u["name"] == "Alice", lambda u: {**u, "is_active": False})
 
-db.update_entity("users", lambda u: u["name"] == "Alice", lambda u: {\*\*u, "is_active": False})
-
-### Delete data
-
+# Delete data
 db.delete_from("users", lambda u: u["id"] == 1)
-</pre>
-
+```
 
 ## 📁 Directory Structure
 
