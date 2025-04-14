@@ -60,17 +60,4 @@ db.delete_from("users", lambda u: u["id"] == 1)
 
 ## 📁 Directory Structure
 
-yourdb/
-│
-├── yourdb/ # Core module
-│ ├── **init**.py
-│ ├── yourdb.py # Main DB interface
-│ ├── entity.py # Entity-level logic
-│ ├── utils.py # Schema validation
-│ └── test.py # Basic tests
-│
-├── LICENSE
-├── MANIFEST.in
-├── setup.py
-├── Readme.md
-└── requirements.txt
+<pre> yourdb/ ├── yourdb/ # Core module │ ├── __init__.py │ ├── yourdb.py # Main DB interface │ ├── entity.py # Entity-level logic (insert, update, delete) │ ├── utils.py # Schema validation and helpers │ └── test.py # Basic unit tests │ ├── LICENSE ├── MANIFEST.in ├── setup.py ├── Readme.md └── requirements.txt </pre>
