@@ -1,0 +1,5 @@
+/build
+/dist
+/yourdb.egg-info
+__pycache__/
+setup.py
