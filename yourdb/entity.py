@@ -1,134 +1,175 @@
 import os
 import pickle
+from multiprocessing.dummy import Pool  # Threading-based Pool
+from functools import partial
 
 
 class Entity:
-    """
-    Represents a single entity (table) in the database. Handles data storage, schema validation,
-    and supports CRUD operations on in-memory data with persistence via pickle.
-    """
-
-    def __init__(self, db_path, name, schema=None):
-        """
-        Initializes an Entity. Loads existing data if the file exists, or creates a new file.
-
-        Args:
-            db_path (str): Path to the database directory.
-            name (str): Name of the entity.
-            schema (dict, optional): Schema for the entity. Required only during creation.
-        """
+    def __init__(self, entity_path, name, schema=None, num_partitions=10):
         self.name = name
         self.schema = schema
-        self.data = []
-        self.file_path = os.path.join(db_path, f"{name}.entity")
+        self.primary_key = None
+        self.num_partitions = num_partitions
+        self.entity_path = entity_path
+        self.schema_path = os.path.join(entity_path, 'schema.pkl')
+        self.file_paths = [
+            os.path.join(entity_path, f"{name}_shard_{i}.entity")
+            for i in range(num_partitions)
+        ]
 
-        if os.path.exists(self.file_path):
-            self.load_data()
+        self.operation_count = 0
+        self.data = {i: [] for i in range(num_partitions)}  # In-memory data
+
+        # Create dir if needed
+        os.makedirs(entity_path, exist_ok=True)
+
+        # Load schema and data if files exist, otherwise initialize
+        if all(os.path.exists(fp) for fp in self.file_paths) and os.path.exists(self.schema_path):
+            self._load_schema()
+            self.load_data()  # Load data once into memory
         else:
-            os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
-            self.save_data()
+            if schema is None:
+                raise Exception(
+                    "Schema must be provided when creating a new entity.")
+            self._save_schema()
+            self._init_empty_shards()
 
-    def save_data(self):
-        """
-        Saves the current entity schema and data to a file using pickle.
-        """
-        with open(self.file_path, 'wb') as f:
-            pickle.dump({
-                'schema': self.schema,
-                'data': self.data
-            }, f)
+        self.primary_key = self.schema.get('primary_key')
+        print(f"Entity '{self.name}' initialized with schema: {self.schema}")
 
-    def load_data(self):
-        """
-        Loads entity schema and data from the corresponding pickle file.
-        """
-        with open(self.file_path, 'rb') as f:
-            saved = pickle.load(f)
-            self.schema = saved['schema']
-            self.data = saved['data']
+    def _save_schema(self):
+        with open(self.schema_path, 'wb') as f:
+            pickle.dump(self.schema, f)
+
+    def _load_schema(self):
+        with open(self.schema_path, 'rb') as f:
+            self.schema = pickle.load(f)
+        self.primary_key = self.schema.get('primary_key')
+
+    def _init_empty_shards(self):
+        for i in range(self.num_partitions):
+            with open(self.file_paths[i], 'wb') as f:
+                pickle.dump([], f)
+
+    def hash_partition(self, key):
+        # print(key)
+        # print(self.primary_key)
+        res = hash(key) % self.num_partitions
+        # print(f"Hash partition for key '{key}': {res}")
+        return res
+        # return key % self.num_partitions
 
     def is_valid_entity(self, entity):
-        """
-        Validates that an entity matches the schema.
-
-        Args:
-            entity (dict): The data record to validate.
-
-        Raises:
-            Exception: If the format is invalid, a field is missing, or a value is of incorrect type.
-
-        Returns:
-            bool: True if the entity is valid.
-        """
         if not isinstance(entity, dict):
-            raise Exception("Invalid entity format. Entity should be a dictionary.")
+            raise Exception("Entity must be a dictionary.")
 
         for key, value in entity.items():
             if key not in self.schema:
                 raise Exception(f"Invalid field '{key}' in entity.")
-            if not isinstance(value, self.schema[key]):
-                raise Exception(f"Field '{key}' should be of type {self.schema[key].__name__}.")
+            expected_type = self.schema[key]
+            if isinstance(expected_type, dict):
+                expected_type = expected_type['type']
+            if not isinstance(value, expected_type):
+                raise Exception(
+                    f"Field '{key}' must be of type {expected_type.__name__}.")
 
+        if self.primary_key:
+            primary_value = entity.get(self.primary_key)
+            if primary_value is None:
+                raise Exception(
+                    f"Primary key '{self.primary_key}' cannot be None.")
+            for partition_data in self.data.values():
+                for existing_entity in partition_data:
+                    if existing_entity.get(self.primary_key) == primary_value:
+                        raise Exception(
+                            f"Duplicate primary key '{primary_value}' found.")
         return True
 
+    def _save_partition(self, i):
+        with open(self.file_paths[i], 'wb') as f:
+            pickle.dump(self.data[i], f)
+
+    def save_data(self):
+        with Pool() as pool:
+            pool.map(self._save_partition, range(self.num_partitions))
+
+    def load_data(self):
+        # Load all partitions once into memory
+        with Pool() as pool:
+            loaded_data = pool.map(self._load_partition,
+                                   range(self.num_partitions))
+        for i in range(self.num_partitions):
+            self.data[i] = loaded_data[i]
+
+    def _load_partition(self, i):
+        with open(self.file_paths[i], 'rb') as f:
+            return pickle.load(f)
+
     def insert(self, entity):
-        """
-        Inserts a new entity after validation.
-
-        Args:
-            entity (dict): The record to insert.
-
-        Raises:
-            Exception: If the record is invalid or a duplicate.
-
-        Returns:
-            bool: True if insertion is successful.
-        """
         if self.is_valid_entity(entity):
-            if entity in self.data:
-                raise Exception("Duplicate entity.")
-            self.data.append(entity)
-            self.save_data()
+            partition = self.hash_partition(entity.get(self.primary_key))
+            self.data[partition].append(entity)  # In-memory insertion
+            self._save_partition(partition)  # Save to disk immediately
             return True
         return False
 
-    def delete(self, condition_fn):
-        """
-        Deletes records that match the given condition.
+    def _delete_from_partition(self, i, condition_fn):
+        # Perform in-memory deletion first
+        data = self.data[i]
+        filtered = [e for e in data if not condition_fn(e)]
+        self.data[i] = filtered  # Update in-memory data
 
-        Args:
-            condition_fn (callable): A function that returns True for records to be deleted.
-        """
-        self.data = [entity for entity in self.data if not condition_fn(entity)]
-        self.save_data()
+        # Now save the partition to disk
+        with open(self.file_paths[i], 'wb') as f:
+            pickle.dump(filtered, f)
 
-    def get_data(self, condition_fn):
-        """
-        Retrieves records based on a filtering condition.
+    def delete(self, condition_fn, by_id=False):
+        if by_id:
+            # Perform delete by ID using a single thread
+            partition = self.hash_partition(condition_fn(self.primary_key))
+            self._delete_from_partition(partition, condition_fn)
+        else:
+            # Perform delete for non-ID using multiple threads
+            with Pool() as pool:
+                pool.map(partial(self._delete_from_partition,
+                         condition_fn=condition_fn), range(self.num_partitions))
 
-        Args:
-            condition_fn (callable or None): A function that returns True for matching records.
+    def _get_from_partition(self, i, condition_fn):
+        data = self.data[i]  # In-memory data
+        if condition_fn:
+            return [e for e in data if condition_fn(e)]
+        return data
 
-        Returns:
-            list: List of matching records. Returns all records if condition_fn is None.
-        """
-        if condition_fn is None:
-            return self.data
-        return [entity for entity in self.data if condition_fn(entity)]
+    def get_data(self, condition_fn=None, by_id=False):
+        if by_id:
+            # Perform search by ID using a single thread
+            partition = self.hash_partition(condition_fn(self.primary_key))
+            return [e for e in self.data[partition] if condition_fn(e)]
+        else:
+            # Perform search for non-ID using multiple threads
+            with Pool() as pool:
+                results = pool.map(partial(
+                    self._get_from_partition, condition_fn=condition_fn), range(self.num_partitions))
+            return [item for sublist in results for item in sublist]
 
-    def update(self, condition_fn, update_fn):
-        """
-        Updates records that satisfy the condition using the update function.
+    def _update_partition(self, i, condition_fn, update_fn):
+        # Perform in-memory update first
+        data = self.data[i]
+        updated = [update_fn(e) if condition_fn(e) else e for e in data]
+        self.data[i] = updated  # Update in-memory data
 
-        Args:
-            condition_fn (callable): A function that selects records to update.
-            update_fn (callable): A function that returns the modified version of the record.
+        # Now save the partition to disk
+        with open(self.file_paths[i], 'wb') as f:
+            pickle.dump(updated, f)
 
-        Returns:
-            bool: True after successful update and persistence.
-        """
-        for i, entity in enumerate(self.data):
-            if condition_fn(entity):
-                self.data[i] = update_fn(entity)
-        self.save_data()
+    def update(self, condition_fn, update_fn, by_id=False):
+        if by_id:
+            # Perform update by ID using a single thread
+            partition = self.hash_partition(condition_fn(self.primary_key))
+            self._update_partition(partition, condition_fn, update_fn)
+        else:
+            # Perform update for non-ID using multiple threads
+            with Pool() as pool:
+                pool.map(partial(self._update_partition, condition_fn=condition_fn,
+                         update_fn=update_fn), range(self.num_partitions))
         return True

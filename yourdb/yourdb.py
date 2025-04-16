@@ -2,6 +2,7 @@ import os
 import types
 from .utils import is_valid_entity_name, is_valid_schema
 from .entity import Entity
+from multiprocessing import Pool
 
 
 class YourDB:
@@ -18,17 +19,18 @@ class YourDB:
             db_name (str): Name of the database.
         """
         self.db_name = db_name
-        self.db_path = os.path.join(os.getcwd(), 'data', db_name)
+        self.db_path = os.path.join(os.getcwd(), db_name+'.yourdb')
         self.entities = {}
 
         if not os.path.exists(self.db_path):
             os.makedirs(self.db_path)
         else:
             # Load existing entities from file
-            for file in os.listdir(self.db_path):
-                if file.endswith('.entity'):
-                    entity_name = file[:-7]
-                    self.entities[entity_name] = Entity(self.db_path, entity_name)
+            for entity_folder in os.listdir(self.db_path):
+                entity_path = os.path.join(self.db_path, entity_folder)
+                if os.path.isdir(entity_path):
+                    self.entities[entity_folder] = Entity(
+                        entity_path, entity_folder)  # no schema passed
 
     def is_valid_entity(self, entity_name, schema):
         """
@@ -45,9 +47,13 @@ class YourDB:
             bool: True if valid.
         """
         if not is_valid_entity_name(entity_name):
-            raise Exception("Invalid entity name.")
+            raise Exception(
+                f"Invalid entity name: {entity_name}. Name must only contain alphanumeric characters and underscores.")
+
         if not is_valid_schema(schema):
-            raise Exception("Invalid entity schema.")
+            raise Exception(
+                f"Invalid schema for entity: {entity_name}. Ensure the schema contains valid types and the primary key is defined.")
+
         return True
 
     def check_entity_existence(self, entity_name):
@@ -86,7 +92,10 @@ class YourDB:
         if entity_name in self.entities:
             raise Exception(f"Entity {entity_name} already exists.")
 
-        self.entities[entity_name] = Entity(self.db_path, entity_name, entity_schema)
+        entity_path = os.path.join(self.db_path, entity_name)
+        os.makedirs(entity_path)
+        self.entities[entity_name] = Entity(
+            entity_path, entity_name, entity_schema)
         return True
 
     def drop_entity(self, entity_name):
@@ -126,6 +135,25 @@ class YourDB:
         self.entities[entity_name].insert(entity)
         return True
 
+    def insert_parallel(self, entity_name, entities):
+        """
+        Insert multiple records in parallel into the specified entity.
+
+        Args:
+            entity_name (str): Name of the entity.
+            entities (list): List of records to insert.
+
+        Returns:
+            bool: True if all records are inserted successfully.
+        """
+        def insert_entity(entity):
+            self.insert_into(entity_name, entity)
+
+        with Pool() as pool:
+            pool.map(insert_entity, entities)
+
+        return True
+
     def list_entities(self):
         """
         Lists all entities in the database.
@@ -155,6 +183,26 @@ class YourDB:
 
         return self.entities[entity_name].get_data(condition_fn)
 
+    def select_parallel(self, entity_name, condition_fn):
+        """
+        Select records from an entity in parallel based on a condition function.
+
+        Args:
+            entity_name (str): Name of the entity.
+            condition_fn (callable): A function to filter records.
+
+        Returns:
+            list: List of matched records.
+        """
+        def get_data_from_partition(i):
+            return self.entities[entity_name].get_data(condition_fn)
+
+        with Pool() as pool:
+            results = pool.map(get_data_from_partition, range(
+                self.entities[entity_name].num_partitions))
+
+        return [entity for result in results for entity in result]
+
     def delete_from(self, entity_name, condition_fn):
         """
         Deletes records from an entity that satisfy the condition.
@@ -168,6 +216,26 @@ class YourDB:
         """
         self.check_entity_existence(entity_name)
         self.entities[entity_name].delete(condition_fn)
+
+    def delete_parallel(self, entity_name, condition_fn):
+        """
+        Delete records from an entity in parallel that satisfy the condition.
+
+        Args:
+            entity_name (str): Name of the entity.
+            condition_fn (callable): A function that returns True for records to delete.
+
+        Returns:
+            bool: True if records are deleted successfully.
+        """
+        def delete_from_partition(i):
+            self.entities[entity_name].delete(condition_fn)
+
+        with Pool() as pool:
+            pool.map(delete_from_partition, range(
+                self.entities[entity_name].num_partitions))
+
+        return True
 
     def update_entity(self, entity_name, condition_fn, update_fn):
         """
@@ -183,3 +251,24 @@ class YourDB:
         """
         self.check_entity_existence(entity_name)
         self.entities[entity_name].update(condition_fn, update_fn)
+
+    def update_parallel(self, entity_name, condition_fn, update_fn):
+        """
+        Update records in an entity in parallel that match the condition.
+
+        Args:
+            entity_name (str): Name of the entity.
+            condition_fn (callable): Function to identify records to update.
+            update_fn (callable): Function that modifies the record.
+
+        Returns:
+            bool: True if records are updated successfully.
+        """
+        def update_partition(i):
+            self.entities[entity_name].update(condition_fn, update_fn)
+
+        with Pool() as pool:
+            pool.map(update_partition, range(
+                self.entities[entity_name].num_partitions))
+
+        return True
