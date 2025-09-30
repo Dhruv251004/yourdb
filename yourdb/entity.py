@@ -19,6 +19,7 @@ class Entity:
 
         self.operation_count = 0
         self.data = {i: [] for i in range(num_partitions)}  # In-memory data
+        self.primary_key_set = set() # Set for fast primary key lookups
 
         # Create dir if needed
         os.makedirs(entity_path, exist_ok=True)
@@ -27,6 +28,12 @@ class Entity:
         if all(os.path.exists(fp) for fp in self.file_paths) and os.path.exists(self.schema_path):
             self._load_schema()
             self.load_data()  # Load data once into memory
+
+            if self.schema.get('primary_key'):
+                pk = self.schema.get('primary_key')
+                for partition_data in self.data.values():
+                    for entity in partition_data:
+                        self.primary_key_set.add(entity.get(pk))
         else:
             if schema is None:
                 raise Exception(
@@ -39,11 +46,11 @@ class Entity:
 
     def _save_schema(self):
         with open(self.schema_path, 'wb') as f:
-            pickle.dump(self.schema, f)
+            pickle.dump(self.schema, f)   # Serialization
 
     def _load_schema(self):
         with open(self.schema_path, 'rb') as f:
-            self.schema = pickle.load(f)
+            self.schema = pickle.load(f)  # Deserialization
         self.primary_key = self.schema.get('primary_key')
 
     def _init_empty_shards(self):
@@ -54,7 +61,7 @@ class Entity:
     def hash_partition(self, key):
         # print(key)
         # print(self.primary_key)
-        res = hash(key) % self.num_partitions
+        res = hash(key) % self.num_partitions    # quick access of the correct partition while CRUD operations
         # print(f"Hash partition for key '{key}': {res}")
         return res
         # return key % self.num_partitions
@@ -78,11 +85,15 @@ class Entity:
             if primary_value is None:
                 raise Exception(
                     f"Primary key '{self.primary_key}' cannot be None.")
-            for partition_data in self.data.values():
-                for existing_entity in partition_data:
-                    if existing_entity.get(self.primary_key) == primary_value:
-                        raise Exception(
-                            f"Duplicate primary key '{primary_value}' found.")
+            # for partition_data in self.data.values():
+            #     for existing_entity in partition_data:
+            #         if existing_entity.get(self.primary_key) == primary_value:
+            #             raise Exception(
+            #                 f"Duplicate primary key '{primary_value}' found.")
+
+            if primary_value in self.primary_key_set:
+                raise Exception(
+                    f"Duplicate primary key '{primary_value}' found.")
         return True
 
     def _save_partition(self, i):
@@ -109,6 +120,10 @@ class Entity:
         if self.is_valid_entity(entity):
             partition = self.hash_partition(entity.get(self.primary_key))
             self.data[partition].append(entity)  # In-memory insertion
+
+            self.primary_key_set.add(entity.get(self.primary_key)) # Add to primary key set
+
+
             self._save_partition(partition)  # Save to disk immediately
             return True
         return False
@@ -116,8 +131,16 @@ class Entity:
     def _delete_from_partition(self, i, condition_fn):
         # Perform in-memory deletion first
         data = self.data[i]
+
+        if self.primary_key:
+            keys_to_delete = {e[self.primary_key] for e in data if condition_fn(e)}
+
+
         filtered = [e for e in data if not condition_fn(e)]
         self.data[i] = filtered  # Update in-memory data
+
+        if self.primary_key:
+            self.primary_key_set.difference_update(keys_to_delete) # Remove from primary key set
 
         # Now save the partition to disk
         with open(self.file_paths[i], 'wb') as f:
@@ -173,3 +196,5 @@ class Entity:
                 pool.map(partial(self._update_partition, condition_fn=condition_fn,
                          update_fn=update_fn), range(self.num_partitions))
         return True
+
+
