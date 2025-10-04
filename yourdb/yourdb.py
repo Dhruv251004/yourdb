@@ -1,9 +1,9 @@
 import os
 import types
+from typing import Dict
 from .utils import is_valid_entity_name, is_valid_schema
 from .entity import Entity
 from multiprocessing import Pool
-
 
 class YourDB:
     """
@@ -20,7 +20,8 @@ class YourDB:
         """
         self.db_name = db_name
         self.db_path = os.path.join(os.getcwd(), db_name+'.yourdb')
-        self.entities = {}
+        self.entities: Dict[str, Entity] = {}
+
 
         if not os.path.exists(self.db_path):
             os.makedirs(self.db_path)
@@ -183,26 +184,6 @@ class YourDB:
 
         return self.entities[entity_name].get_data(condition_fn)
 
-    def select_parallel(self, entity_name, condition_fn):
-        """
-        Select records from an entity in parallel based on a condition function.
-
-        Args:
-            entity_name (str): Name of the entity.
-            condition_fn (callable): A function to filter records.
-
-        Returns:
-            list: List of matched records.
-        """
-        def get_data_from_partition(i):
-            return self.entities[entity_name].get_data(condition_fn)
-
-        with Pool() as pool:
-            results = pool.map(get_data_from_partition, range(
-                self.entities[entity_name].num_partitions))
-
-        return [entity for result in results for entity in result]
-
     def delete_from(self, entity_name, condition_fn):
         """
         Deletes records from an entity that satisfy the condition.
@@ -216,26 +197,6 @@ class YourDB:
         """
         self.check_entity_existence(entity_name)
         self.entities[entity_name].delete(condition_fn)
-
-    def delete_parallel(self, entity_name, condition_fn):
-        """
-        Delete records from an entity in parallel that satisfy the condition.
-
-        Args:
-            entity_name (str): Name of the entity.
-            condition_fn (callable): A function that returns True for records to delete.
-
-        Returns:
-            bool: True if records are deleted successfully.
-        """
-        def delete_from_partition(i):
-            self.entities[entity_name].delete(condition_fn)
-
-        with Pool() as pool:
-            pool.map(delete_from_partition, range(
-                self.entities[entity_name].num_partitions))
-
-        return True
 
     def update_entity(self, entity_name, condition_fn, update_fn):
         """
@@ -252,23 +213,3 @@ class YourDB:
         self.check_entity_existence(entity_name)
         self.entities[entity_name].update(condition_fn, update_fn)
 
-    def update_parallel(self, entity_name, condition_fn, update_fn):
-        """
-        Update records in an entity in parallel that match the condition.
-
-        Args:
-            entity_name (str): Name of the entity.
-            condition_fn (callable): Function to identify records to update.
-            update_fn (callable): Function that modifies the record.
-
-        Returns:
-            bool: True if records are updated successfully.
-        """
-        def update_partition(i):
-            self.entities[entity_name].update(condition_fn, update_fn)
-
-        with Pool() as pool:
-            pool.map(update_partition, range(
-                self.entities[entity_name].num_partitions))
-
-        return True
