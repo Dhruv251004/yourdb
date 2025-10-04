@@ -5,7 +5,9 @@ from yourdb import YourDB
 # --- NEW: Import the class registration decorator ---
 from yourdb.utils import register_class
 
-@register_class
+
+
+
 class ContactDetails:
     def __init__(self, email, phone):
         self.email = email
@@ -51,7 +53,7 @@ def run_benchmark():
     db_path = os.path.join(os.getcwd(), DB_NAME + '.yourdb')
     if os.path.exists(db_path):
         shutil.rmtree(db_path)
-    print(db_path)
+
     print(f"\n--- Starting YourDB JSON + Object Insertion Benchmark ---")
     print(f"Number of objects to insert: {NUM_OBJECTS}\n")
 

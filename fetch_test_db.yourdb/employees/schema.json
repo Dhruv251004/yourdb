@@ -1,0 +1,8 @@
+{
+    "primary_key": "emp_id",
+    "emp_id": "int",
+    "name": "str",
+    "department": "str",
+    "is_manager": "bool",
+    "contact_details": "ContactDetails"
+}
