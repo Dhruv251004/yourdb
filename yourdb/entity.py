@@ -3,6 +3,7 @@ import json
 from multiprocessing.dummy import Pool
 from functools import partial
 from .utils import YourDBEncoder, yourdb_decoder, SERIALIZABLE_CLASSES
+from .compaction import Compactor
 
 class Entity:
     def __init__(self, entity_path, name, schema=None, num_partitions=10):
@@ -11,14 +12,19 @@ class Entity:
         self.num_partitions = num_partitions
         self.entity_path = entity_path
         self.schema_path = os.path.join(entity_path, 'schema.json')
+        print(f"this is the entity path------------->   {entity_path}")
         self.file_paths = [
             os.path.join(entity_path, f"{name}_shard_{i}.log")
             for i in range(num_partitions)
         ]
+
         self.data = {i: {} for i in range(num_partitions)} #  It's a copy of the final state of data held in
                                                         #  computer's RAM for extremely fast reading.
         self.primary_key = None
         self.primary_key_set = set()
+
+        self.COMPACTION_THRESHOLD=1000
+        self.write_counts={i: 0 for i in range(num_partitions)}
 
         os.makedirs(entity_path, exist_ok=True)
 
@@ -34,6 +40,19 @@ class Entity:
             for fp in self.file_paths:
                 open(fp, 'a').close()
         print(f"Entity '{self.name}' initialized with schema: {self.schema}")
+
+
+    def _check_and_compact(self,partition_index: int):
+        """ if the partition has hit the write threshold ,do the compation"""
+
+        if self.write_counts[partition_index] >=self.COMPACTION_THRESHOLD:
+            print(f"Compaction triggered for partition {partition_index} of entity '{self.name}'")
+            compactor=Compactor(self.file_paths[partition_index],self.primary_key)
+            compactor.compact()
+
+            self.write_counts[partition_index]=0 # reseting the write count file after compaction
+
+
 
     def _save_schema(self):
         with open(self.schema_path, 'w') as f:
@@ -109,6 +128,10 @@ class Entity:
                 f.write(json.dumps(log_entry, cls=YourDBEncoder) + '\n')
             self.data[partition][pk_val] = entity
             self.primary_key_set.add(pk_val)
+
+            self.write_counts[partition] += 1
+            self._check_and_compact(partition)
+
             return True
         return False
 
@@ -136,6 +159,9 @@ class Entity:
                 # Update in-memory state
                 del self.data[i][pk_val]
                 self.primary_key_set.discard(pk_val)
+
+                self.write_counts[i] += 1
+                self._check_and_compact(i)
 
     def delete(self, condition_fn):
         # The by_id flag is removed as this scan-and-delete is the primary method now
@@ -168,6 +194,9 @@ class Entity:
                     log_entry = {"op": "UPDATE", "pk": pk_val, "data": update_payload}
                     f.write(json.dumps(log_entry, cls=YourDBEncoder) + '\n')
                     # The in-memory object is already updated by reference via update_fn
+
+                    self.write_counts[i] += 1
+                    self._check_and_compact(i)
 
     def update(self, condition_fn, update_fn):
         with Pool() as pool:
