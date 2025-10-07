@@ -4,5 +4,9 @@
     "name": "str",
     "department": "str",
     "is_manager": "bool",
-    "contact_details": "ContactDetails"
+    "contact_details": "ContactDetails",
+    "indexes": [
+        "department",
+        "is_manager"
+    ]
 }
