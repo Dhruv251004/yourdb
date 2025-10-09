@@ -29,48 +29,90 @@ pip install .
 ## 🏁 Quickstart
 
 ```python
-from yourdb.yourdb import YourDB
+# 1. Import the necessary components from yourdb
+from yourdb import YourDB, register_class
 
-# Create or connect to a DB
-db = YourDB("my_database")
+# 2. Define your data model as a standard Python class
+# The @register_class decorator is essential for the database to handle your object.
+@register_class
+class User:
+    def __init__(self, user_id, name, city, is_active=True):
+        self.user_id = user_id
+        self.name = name
+        self.city = city
+        self.is_active = is_active
 
-# Define entity schema (like a table schema)
-schema = {
-    "id": int,
-    "name": str,
-    "is_active": bool
+    def __repr__(self):
+        # A nice string representation for printing the object
+        return f"User(id={self.user_id}, name='{self.name}', city='{self.city}', active={self.is_active})"
+
+# 3. Initialize the database (this will create a 'my_app.yourdb' directory)
+db = YourDB("my_app")
+
+# 4. Define a schema for your entity, including which fields to index
+user_schema = {
+    'primary_key': 'user_id',
+    'user_id': "int",
+    'name': "str",
+    'city': "str",
+    'is_active': "bool",
+    'indexes': ['city'] # We'll create an index on the 'city' field for fast lookups
 }
-db.create_entity("users", schema)
 
-# Insert data
-user1 = {"id": 1, "name": "Alice", "is_active": True}
-db.insert_into("users", user1)
+# 5. Create an entity (similar to a table)
+db.create_entity("users", user_schema)
 
-# Query data
-results = db.select_from("users", lambda u: u["is_active"])
-print(results)
+# 6. Insert your custom objects directly (no .to_dict() needed)
+print("--> Inserting 3 users...")
+db.insert_into("users", User(user_id=101, name="Alice", city="New York"))
+db.insert_into("users", User(user_id=102, name="Bob", city="London"))
+db.insert_into("users", User(user_id=103, name="Charlie", city="New York"))
 
-# Update data
-db.update_entity("users", lambda u: u["name"] == "Alice", lambda u: {**u, "is_active": False})
+# 7. Query data using an index for high performance
+print("\n--> Fetching users from 'New York' (uses the 'city' index)...")
+ny_users = db.select_from("users", filter_dict={'city': 'New York'})
+print(ny_users)
 
-# Delete data
-db.delete_from("users", lambda u: u["id"] == 1)
+# 8. Update data using a filter dictionary
+print("\n--> Deactivating Bob...")
+def deactivate_user(user):
+    user.is_active = False
+    return user
+
+# The update operation will use a full scan because 'name' is not indexed
+db.update_entity("users", filter_dict={'name': 'Bob'}, update_fn=deactivate_user)
+
+# Verify the update by fetching the record again
+bob = db.select_from("users", filter_dict={'user_id': 102})[0]
+print(f"Verified update: {bob}")
+
+# 9. Delete data using a filter
+print("\n--> Deleting user 101...")
+db.delete_from("users", filter_dict={'user_id': 101})
+
+# Verify the deletion by fetching all remaining users
+all_users = db.select_from("users")
+print(f"Final users in DB: {all_users}")
 ```
 
 ## 📁 Directory Structure
 
 <pre>
 yourdb/
-│
-├── yourdb/ # Core module
-│ ├── **init**.py
-│ ├── yourdb.py # Main DB interface
-│ ├── entity.py # Entity-level logic
-│ ├── utils.py # Schema validation
-│ └── test.py # Basic tests
-│
+├── .gitignore
 ├── LICENSE
 ├── MANIFEST.in
+├── pyproject.toml      # Project configuration (replaces requirements.txt)
 ├── Readme.md
-└── requirements.txt
+│
+├── test_files/         # Contains benchmark and test scripts
+│   ├── fetch_test.py
+│   └── main.py
+│
+└── yourdb/             # The core source code of the database package
+    ├── __init__.py     # Makes 'yourdb' a Python package
+    ├── compaction.py   # Handles log file compaction logic
+    ├── entity.py       # Core storage engine and entity-level logic
+    ├── utils.py        # Serialization, validation, and helper functions
+    └── yourdb.py       # Main public API and DB interface
 </pre>
