@@ -1,4 +1,5 @@
 import os
+import shutil
 import types
 from typing import Dict
 from .utils import is_valid_entity_name, is_valid_schema
@@ -113,10 +114,11 @@ class YourDB:
             bool: True if successfully deleted.
         """
         self.check_entity_existence(entity_name)
-
-        os.remove(os.path.join(self.db_path, f"{entity_name}.entity"))
+        entity_path = os.path.join(self.db_path, entity_name)
+        shutil.rmtree(entity_path) # Use this instead of os.remove
         del self.entities[entity_name]
         return True
+
 
     def insert_into(self, entity_name, entity):
         """
@@ -136,25 +138,6 @@ class YourDB:
         self.entities[entity_name].insert(entity)
         return True
 
-    def insert_parallel(self, entity_name, entities):
-        """
-        Insert multiple records in parallel into the specified entity.
-
-        Args:
-            entity_name (str): Name of the entity.
-            entities (list): List of records to insert.
-
-        Returns:
-            bool: True if all records are inserted successfully.
-        """
-        def insert_entity(entity):
-            self.insert_into(entity_name, entity)
-
-        with Pool() as pool:
-            pool.map(insert_entity, entities)
-
-        return True
-
     def list_entities(self):
         """
         Lists all entities in the database.
@@ -164,27 +147,15 @@ class YourDB:
         """
         return list(self.entities.keys())
 
-    def select_from(self, entity_name, condition_fn=None):
+    def select_from(self, entity_name, filter_dict: dict = None):
         """
-        Selects records from an entity that match a given condition.
-
-        Args:
-            entity_name (str): Name of the entity.
-            condition_fn (callable, optional): A function to filter records. Defaults to None.
-
-        Raises:
-            Exception: If condition_fn is not a valid function.
-
-        Returns:
-            list: List of matched records.
+        Selects records from an entity that match a given filter dictionary.
+        Example: filter_dict={'department': 'Retail'}
         """
-        if condition_fn is not None:
-            if not isinstance(condition_fn, types.FunctionType):
-                raise Exception('Condition should be a valid function')
+        return self.entities[entity_name].get_data(filter_dict)
 
-        return self.entities[entity_name].get_data(condition_fn)
 
-    def delete_from(self, entity_name, condition_fn):
+    def delete_from(self, entity_name, filter_dict: dict):
         """
         Deletes records from an entity that satisfy the condition.
 
@@ -196,9 +167,9 @@ class YourDB:
             Exception: If the entity does not exist.
         """
         self.check_entity_existence(entity_name)
-        self.entities[entity_name].delete(condition_fn)
+        self.entities[entity_name].delete(filter_dict)
 
-    def update_entity(self, entity_name, condition_fn, update_fn):
+    def update_entity(self, entity_name, filter_dict: dict , update_fn):
         """
         Updates records in an entity that match the condition using the provided update function.
 
@@ -211,5 +182,5 @@ class YourDB:
             Exception: If the entity does not exist.
         """
         self.check_entity_existence(entity_name)
-        self.entities[entity_name].update(condition_fn, update_fn)
+        self.entities[entity_name].update(filter_dict, update_fn)
 

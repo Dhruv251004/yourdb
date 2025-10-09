@@ -11,8 +11,9 @@ class Entity:
         self.schema = schema
         self.num_partitions = num_partitions
         self.entity_path = entity_path
-        self.schema_path = os.path.join(entity_path, 'schema.json')
         print(f"this is the entity path------------->   {entity_path}")
+        self.schema_path = os.path.join(entity_path, 'schema.json')
+        print(f"this is the schema path------------->   {self.schema_path}")
         self.file_paths = [
             os.path.join(entity_path, f"{name}_shard_{i}.log")
             for i in range(num_partitions)
@@ -26,11 +27,17 @@ class Entity:
         self.COMPACTION_THRESHOLD=1000
         self.write_counts={i: 0 for i in range(num_partitions)}
 
+        self.indexes = {}
         os.makedirs(entity_path, exist_ok=True)
 
         if os.path.exists(self.schema_path):
             self._load_schema()
             self.primary_key = self.schema.get('primary_key')
+
+            # Initializing the empty indexes based on the schema
+            for indexed_field in self.schema.get('indexes', []):
+                self.indexes[indexed_field] = {}
+
             self._load_from_logs()
         else:
             if schema is None:
@@ -43,7 +50,7 @@ class Entity:
 
 
     def _check_and_compact(self,partition_index: int):
-        """ if the partition has hit the write threshold ,do the compation"""
+        """ if the partition has hit the write threshold ,do the compaction"""
 
         if self.write_counts[partition_index] >=self.COMPACTION_THRESHOLD:
             print(f"Compaction triggered for partition {partition_index} of entity '{self.name}'")
@@ -52,16 +59,14 @@ class Entity:
 
             self.write_counts[partition_index]=0 # reseting the write count file after compaction
 
-
-
     def _save_schema(self):
         with open(self.schema_path, 'w') as f:
-            # --- CHANGED: Added custom encoder for consistency ---
+            # Added custom encoder for consistency ---
             json.dump(self.schema, f, indent=4, cls=YourDBEncoder)
 
     def _load_schema(self):
         with open(self.schema_path, 'r') as f:
-            # --- CHANGED: Added custom decoder for consistency ---
+            # Added custom decoder for consistency ---
             self.schema = json.load(f, object_hook=yourdb_decoder)
 
     def _load_from_logs(self):
@@ -74,21 +79,51 @@ class Entity:
             for line in f:
                 if not line.strip(): continue
                 log_entry = json.loads(line, object_hook=yourdb_decoder)
+                op = log_entry.get('op')
 
-                if log_entry['op'] == 'INSERT':
-                    pk_val = getattr(log_entry['data'], self.primary_key)
-                    partition_data[pk_val] = log_entry['data']
+                if op == 'INSERT':
+                    obj = log_entry['data']
+                    pk_val = getattr(obj, self.primary_key)
+                    partition_data[pk_val] = obj
                     self.primary_key_set.add(pk_val)
+                    for field_name, index in self.indexes.items():
+                        value = getattr(obj, field_name)
+                        if value not in index:
+                            index[value] = set()
+                        index[value].add(pk_val)
 
-                elif log_entry['op'] == 'UPDATE':
+                elif op == 'UPDATE':
                     pk_to_update = log_entry['pk']
                     if pk_to_update in partition_data:
-                        for key, value in log_entry['data'].items():
-                           setattr(partition_data[pk_to_update], key, value)
+                        original_object = partition_data[pk_to_update]
+                        update_data = log_entry.get('data', {})
+                        # For each indexed field, check if its value is changing
+                        for field_name, index in self.indexes.items():
+                            if field_name in update_data:
+                                old_value = getattr(original_object, field_name)
+                                new_value = update_data[field_name]
+                                if old_value != new_value:
+                                    # Remove from old index entry
+                                    if old_value in index:
+                                        index[old_value].discard(pk_to_update)
+                                    # Add to new index entry
+                                    if new_value not in index:
+                                        index[new_value] = set()
+                                    index[new_value].add(pk_to_update)
+                        # Apply the update to the in-memory object
+                        for key, value in update_data.items():
+                           setattr(original_object, key, value)
 
-                elif log_entry['op'] == 'DELETE':
+                elif op == 'DELETE':
                     pk_to_delete = log_entry['pk']
                     if pk_to_delete in partition_data:
+                        obj_to_delete = partition_data[pk_to_delete]
+                        # Remove from all indexes before deleting
+                        for field_name, index in self.indexes.items():
+                            value = getattr(obj_to_delete, field_name)
+                            if value in index:
+                                index[value].discard(pk_to_delete)
+                        # Delete the object
                         del partition_data[pk_to_delete]
                         self.primary_key_set.discard(pk_to_delete)
         self.data[i] = partition_data
@@ -129,19 +164,61 @@ class Entity:
             self.data[partition][pk_val] = entity
             self.primary_key_set.add(pk_val)
 
+            for field_name, index in self.indexes.items():
+                value = getattr(entity, field_name)
+                if value not in index:
+                    index[value] = set()
+                index[value].add(pk_val)
+
             self.write_counts[partition] += 1
             self._check_and_compact(partition)
 
             return True
         return False
 
-    def get_data(self, condition_fn=None):
-        all_results = []
-        for partition_index in range(self.num_partitions):
-            for record_object in self.data[partition_index].values():
-                if condition_fn is None or condition_fn(record_object):
-                    all_results.append(record_object)
-        return all_results
+    def get_data(self, filter_dict: dict = None):
+        if not filter_dict:
+        # No filter, return all data (full scan)
+            all_results = []
+            for partition_data in self.data.values():
+                all_results.extend(partition_data.values())
+            return all_results
+
+        indexed_field = None
+        for field in filter_dict.keys():
+            if field in self.indexes:
+                indexed_field = field
+                break # Use the first index we find
+
+        if indexed_field:
+        #  Path 1: Use the Index
+            print(f"Querying using index on '{indexed_field}'...")
+            value_to_find = filter_dict[indexed_field]
+            index = self.indexes[indexed_field]
+
+            # Get the set of primary keys from the index (very fast)
+            primary_keys = index.get(value_to_find, set())
+
+            # Retrieve only the matching records directly
+            results = []
+            for pk in primary_keys:
+                partition_index = self.hash_partition(pk)
+                record = self.data[partition_index].get(pk)
+                if record:
+                    # (A full implementation would apply other filters here if necessary)
+                    results.append(record)
+            return results
+
+        else:
+        # --- Path 2: Full Scan ---
+            print("No suitable index found. Performing full scan...")
+            results = []
+            for partition_data in self.data.values():
+                for record in partition_data.values():
+                    if all(getattr(record, k, None) == v for k, v in filter_dict.items()):
+                        results.append(record)
+            return results
+
 
     # --- REWRITTEN: Delete and its helper now use the append-only log ---
     def _delete_from_partition(self, i, condition_fn):
@@ -154,6 +231,12 @@ class Entity:
         with open(self.file_paths[i], 'a') as f:
             for record in records_to_delete:
                 pk_val = getattr(record, self.primary_key)
+
+                for field_name, index in self.indexes.items():
+                    value = getattr(record, field_name)
+                    if value in index:
+                        index[value].discard(pk_val)
+
                 log_entry = {"op": "DELETE", "pk": pk_val}
                 f.write(json.dumps(log_entry) + '\n')
                 # Update in-memory state
@@ -163,11 +246,35 @@ class Entity:
                 self.write_counts[i] += 1
                 self._check_and_compact(i)
 
-    def delete(self, condition_fn):
-        # The by_id flag is removed as this scan-and-delete is the primary method now
-        with Pool() as pool:
-            pool.map(partial(self._delete_from_partition,
-                     condition_fn=condition_fn), range(self.num_partitions))
+    def delete(self, filter_dict:dict):
+        records_to_delete = self.get_data(filter_dict)
+        if not records_to_delete:
+            return
+
+        for record in records_to_delete:
+            pk_val = getattr(record, self.primary_key)
+            partition_index = self.hash_partition(pk_val)
+
+            # 1. Update indexes
+            for field_name, index in self.indexes.items():
+                value = getattr(record, field_name)
+                if value in index:
+                    index[value].discard(pk_val)
+
+            # 2. Write to log
+            with open(self.file_paths[partition_index], 'a') as f:
+                log_entry = {"op": "DELETE", "pk": pk_val}
+                f.write(json.dumps(log_entry) + '\n')
+
+            # 3. Update in-memory state
+            if pk_val in self.data[partition_index]:
+                del self.data[partition_index][pk_val]
+            self.primary_key_set.discard(pk_val)
+
+            # 4. Trigger compaction check
+            self.write_counts[partition_index] += 1
+            self._check_and_compact(partition_index)
+
 
     # Update and its helper now use the append-only log ---
     def _update_partition(self, i, condition_fn, update_fn):
@@ -180,15 +287,30 @@ class Entity:
         with open(self.file_paths[i], 'a') as f:
             for record in records_to_update:
                 pk_val = getattr(record, self.primary_key)
-                original_record_dict = record.__dict__.copy()
+                old_index_values = {
+                    field_name: getattr(record, field_name)
+                    for field_name in self.indexes.keys()
+                }
 
                 # Apply the update function to a copy to see what changed
                 updated_record = update_fn(record)
+                for field_name, index in self.indexes.items():
+                    old_value = old_index_values[field_name]
+                    new_value = getattr(updated_record, field_name)
+                    if old_value != new_value:
+                        # Remove from old index entry
+                        if old_value in index:
+                            index[old_value].discard(pk_val)
+                        # Add to new index entry
+                        if new_value not in index:
+                            index[new_value] = set()
+                        index[new_value].add(pk_val)
 
                 update_payload = {
-                    k: updated_record.__dict__[k] for k in updated_record.__dict__
-                    if updated_record.__dict__[k] != original_record_dict.get(k)
+                    k: v for k, v in updated_record.__dict__.items()
+                    if v != old_index_values.get(k)
                 }
+
 
                 if update_payload:
                     log_entry = {"op": "UPDATE", "pk": pk_val, "data": update_payload}
@@ -198,16 +320,46 @@ class Entity:
                     self.write_counts[i] += 1
                     self._check_and_compact(i)
 
-    def update(self, condition_fn, update_fn):
-        with Pool() as pool:
-            pool.map(partial(self._update_partition, condition_fn=condition_fn,
-                     update_fn=update_fn), range(self.num_partitions))
-        return True
+    def update(self, filter_dict: dict, update_fn):
+        """Finds records using get_data (which uses indexes) and then updates them."""
+        records_to_update = self.get_data(filter_dict)
 
-    # --- REMOVED: All old pickle-based methods are now gone ---
-    # _init_empty_shards
-    # _save_partition
-    # save_data
-    # load_data
-    # _load_partition
-    # _get_from_partition
+        if not records_to_update:
+            return
+
+        for record in records_to_update:
+            pk_val = getattr(record, self.primary_key)
+            partition_index = self.hash_partition(pk_val)
+
+            # 1. Store old index values before updating
+            old_index_values = {
+                field_name: getattr(record, field_name)
+                for field_name in self.indexes.keys()
+            }
+
+            # 2. Apply update function (modifies the object by reference)
+            updated_record = update_fn(record)
+
+            # 3. Update indexes if any indexed fields changed
+            for field_name, index in self.indexes.items():
+                old_value = old_index_values[field_name]
+                new_value = getattr(updated_record, field_name)
+                if old_value != new_value:
+                    if old_value in index:
+                        index[old_value].discard(pk_val)
+                    if new_value not in index:
+                        index[new_value] = set()
+                    index[new_value].add(pk_val)
+
+            # 4. Create a minimal log and write to disk
+            update_payload = { k: v for k, v in updated_record.__dict__.items() if v != old_index_values.get(k) }
+
+            if update_payload:
+                with open(self.file_paths[partition_index], 'a') as f:
+                    log_entry = {"op": "UPDATE", "pk": pk_val, "data": update_payload}
+                    f.write(json.dumps(log_entry, cls=YourDBEncoder) + '\n')
+
+                    # 5. Trigger compaction check
+                    self.write_counts[partition_index] += 1
+                    self._check_and_compact(partition_index)
+        return True
