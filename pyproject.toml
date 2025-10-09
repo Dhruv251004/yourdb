@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=42", "wheel"]
+requires = ["setuptools>=77", "wheel", "build"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,16 +8,21 @@ version = "0.1.0"
 description = "A Python-native object database"
 readme = "README.md"
 authors = [
-    { name="Dhruv Verma", email="engdhruv25@example.com" },
-    { name="Aayushman Gupta", email="aayushmangupta780@example.com" }
+    { name = "Dhruv Verma", email = "engdhruv25@example.com" },
+    { name = "Aayushman Gupta", email = "aayushmangupta780@example.com" }
 ]
-license = { text="MIT" }
+license = { text = "MIT" }       # SPDX license expression
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
 
 [project.urls]
 Homepage = "https://github.com/Dhruv251004/yourdb"
+Documentation = "https://github.com/Dhruv251004/yourdb#readme"
+Repository = "https://github.com/Dhruv251004/yourdb"
+
+[tool.setuptools]
+packages = ["yourdb"]             # explicitly include only yourdb package
+include-package-data = true       # include MANIFEST.in files
