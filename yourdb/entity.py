@@ -4,6 +4,7 @@ from multiprocessing.dummy import Pool
 from functools import partial
 from .utils import YourDBEncoder, yourdb_decoder, SERIALIZABLE_CLASSES
 from .compaction import Compactor
+import operator
 
 class Entity:
     def __init__(self, entity_path, name, schema=None, num_partitions=10):
@@ -44,6 +45,8 @@ class Entity:
                 raise Exception("Schema must be provided when creating a new entity.")
             self._save_schema()
             self.primary_key = self.schema.get('primary_key')
+            for indexed_field in self.schema.get('indexes', []):
+                self.indexes[indexed_field] = {}
             for fp in self.file_paths:
                 open(fp, 'a').close()
         print(f"Entity '{self.name}' initialized with schema: {self.schema}")
@@ -176,49 +179,142 @@ class Entity:
             return True
         return False
 
+    # def get_data(self, filter_dict: dict = None):
+    #     if not filter_dict:
+    #     # No filter, return all data (full scan)
+    #         all_results = []
+    #         for partition_data in self.data.values():
+    #             all_results.extend(partition_data.values())
+    #         return all_results
+
+    #     indexed_field = None
+    #     for field in filter_dict.keys():
+    #         if field in self.indexes:
+    #             indexed_field = field
+    #             break # Use the first index we find
+
+    #     if indexed_field:
+    #     #  Path 1: Use the Index
+    #         print(f"Querying using index on '{indexed_field}'...")
+    #         value_to_find = filter_dict[indexed_field]
+    #         index = self.indexes[indexed_field]
+
+    #         # Get the set of primary keys from the index (very fast)
+    #         primary_keys = index.get(value_to_find, set())
+
+    #         # Retrieve only the matching records directly
+    #         results = []
+    #         for pk in primary_keys:
+    #             partition_index = self.hash_partition(pk)
+    #             record = self.data[partition_index].get(pk)
+    #             if record:
+    #                 # (A full implementation would apply other filters here if necessary)
+    #                 results.append(record)
+    #         return results
+
+    #     else:
+    #     # --- Path 2: Full Scan ---
+    #         print("No suitable index found. Performing full scan...")
+    #         results = []
+    #         for partition_data in self.data.values():
+    #             for record in partition_data.values():
+    #                 if all(getattr(record, k, None) == v for k, v in filter_dict.items()):
+    #                     results.append(record)
+    #         return results
     def get_data(self, filter_dict: dict = None):
+        """
+        Retrieve records matching the filter_dict.
+        Supports MongoDB-style operators and index-based optimization.
+        Example filters:
+            {'department': 'Engineering'}
+            {'salary': {'$gt': 80000}}
+            {'department': 'Engineering', 'emp_id': {'$gt': 101}}
+        """
+        # --- No filter: return all data ---
         if not filter_dict:
-        # No filter, return all data (full scan)
             all_results = []
             for partition_data in self.data.values():
                 all_results.extend(partition_data.values())
             return all_results
 
-        indexed_field = None
-        for field in filter_dict.keys():
-            if field in self.indexes:
-                indexed_field = field
-                break # Use the first index we find
+        # ---  Find all indexed fields used in the filter ---
+        indexed_fields = [f for f in filter_dict if f in self.indexes]
+        candidates = None
 
-        if indexed_field:
-        #  Path 1: Use the Index
-            print(f"Querying using index on '{indexed_field}'...")
-            value_to_find = filter_dict[indexed_field]
-            index = self.indexes[indexed_field]
+        # ---  Use indexes to narrow down search space ---
+        if indexed_fields:
+            print(f"Using indexes on fields: {indexed_fields}")
 
-            # Get the set of primary keys from the index (very fast)
-            primary_keys = index.get(value_to_find, set())
+            # For each indexed field, find primary keys that match
+            index_sets = []
+            for field in indexed_fields:
+                condition = filter_dict[field]
+                index = self.indexes[field]
 
-            # Retrieve only the matching records directly
-            results = []
-            for pk in primary_keys:
+                # Handle only equality for indexes (non-range)
+                if not isinstance(condition, dict) or "$eq" in condition:
+                    value = condition if not isinstance(condition, dict) else condition["$eq"]
+                    index_sets.append(index.get(value, set()))
+                else:
+                    # If range condition, fall back to scanning all index entries
+                    matched_keys = set()
+                    for val, pks in index.items():
+                        if self._match_condition(val, condition):
+                            matched_keys.update(pks)
+                    index_sets.append(matched_keys)
+
+            # Intersect sets for multi-index queries (AND logic)
+            candidates = set.intersection(*index_sets) if index_sets else None
+        else:
+            print("No suitable index found. Performing full scan...")
+
+        # --- Collect candidate records (from narrowed partitions if possible) ---
+        results = []
+        if candidates is not None:
+            # Indexed path: direct lookup
+            for pk in candidates:
                 partition_index = self.hash_partition(pk)
                 record = self.data[partition_index].get(pk)
-                if record:
-                    # (A full implementation would apply other filters here if necessary)
+                if record and self._matches_filter(record, filter_dict):
                     results.append(record)
-            return results
-
         else:
-        # --- Path 2: Full Scan ---
-            print("No suitable index found. Performing full scan...")
-            results = []
+            # Full scan path
             for partition_data in self.data.values():
                 for record in partition_data.values():
-                    if all(getattr(record, k, None) == v for k, v in filter_dict.items()):
+                    if self._matches_filter(record, filter_dict):
                         results.append(record)
-            return results
 
+        return results
+    
+    def _match_condition(self, field_value, condition):
+        """Evaluate a single field condition, supporting MongoDB-style operators."""
+        if isinstance(condition, dict):
+            ops = {
+                '$gt': lambda a, b: a > b,
+                '$lt': lambda a, b: a < b,
+                '$gte': lambda a, b: a >= b,
+                '$lte': lambda a, b: a <= b,
+                '$eq': lambda a, b: a == b,
+                '$ne': lambda a, b: a != b,
+            }
+            # All operators in the dict must hold true
+            return all(ops[op](field_value, val) for op, val in condition.items() if op in ops)
+        else:
+            # Simple equality
+            return field_value == condition
+
+
+    def _matches_filter(self, record, filter_dict):
+        """Check if a record satisfies all filter conditions."""
+        for field, condition in filter_dict.items():
+            field_value = getattr(record, field, None)
+            if not self._match_condition(field_value, condition):
+                return False  # short-circuit
+        return True
+
+
+
+    
 
     # --- REWRITTEN: Delete and its helper now use the append-only log ---
     def _delete_from_partition(self, i, condition_fn):
