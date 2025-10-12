@@ -3,3 +3,10 @@
 /yourdb.egg-info
 __pycache__/
 setup.py
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.log

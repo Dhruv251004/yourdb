@@ -1,13 +1,18 @@
-# __init__.py for your DB module
+"""
+YourDB: A lightweight Python-native object database.
 
-# Import the main DB class
+Modules:
+    - YourDB: main database class
+    - Entity: database entity class
+    - utils: helper functions
+"""
+
+__version__ = "0.1.0"
+
+# Import main classes
 from .yourdb import YourDB
-
-# Import utility functions for entity validation
-from .utils import is_valid_entity_name, is_valid_schema
-
-# Import the Entity class
 from .entity import Entity
 
-# Optional: Expose other helper functions or constants
-__all__ = ['YourDB', 'Entity', 'is_valid_entity_name', 'is_valid_schema']
+
+# Explicitly define exports
+__all__ = ['YourDB', 'Entity']
