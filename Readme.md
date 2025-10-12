@@ -29,32 +29,68 @@ pip install .
 ## 🏁 Quickstart
 
 ```python
-from yourdb.yourdb import YourDB
+# 1. Import the necessary components from yourdb
+from yourdb import YourDB, register_class
 
-# Create or connect to a DB
-db = YourDB("my_database")
+# 2. Define your data model as a standard Python class
+# The @register_class decorator is essential for the database to handle your object.
+@register_class
+class User:
+    def __init__(self, user_id, name, city, age):
+        self.user_id = user_id
+        self.name = name
+        self.city = city
+        self.age = age
+    
+    def __repr__(self):
+        return f"User(id={self.user_id}, name='{self.name}', city='{self.city}', age={self.age})"
 
-# Define entity schema (like a table schema)
-schema = {
-    "id": int,
-    "name": str,
-    "is_active": bool
+# 3. Initialize the database
+db = YourDB("my_app")
+
+# 4. Define a schema, including which fields to index
+user_schema = {
+    'primary_key': 'user_id',
+    'user_id': "int",
+    'name': "str",
+    'city': "str",
+    'age': "int",
+    'indexes': ['city'] # Create an index on 'city' for fast lookups
 }
-db.create_entity("users", schema)
 
-# Insert data
-user1 = {"id": 1, "name": "Alice", "is_active": True}
-db.insert_into("users", user1)
+# 5. Create an entity (like a table)
+db.create_entity("users", user_schema)
 
-# Query data
-results = db.select_from("users", lambda u: u["is_active"])
-print(results)
+# 6. Insert your custom objects directly
+print("--> Inserting users...")
+db.insert_into("users", User(user_id=101, name="Alice", city="New York", age=28))
+db.insert_into("users", User(user_id=102, name="Bob", city="London", age=35))
+db.insert_into("users", User(user_id=103, name="Charlie", city="New York", age=42))
 
-# Update data
-db.update_entity("users", lambda u: u["name"] == "Alice", lambda u: {**u, "is_active": False})
+# 7. Query data using an index for high performance
+print("\n--> Fetching users from 'New York' (uses the 'city' index)...")
+ny_users = db.select_from("users", filter_dict={'city': 'New York'})
+print(ny_users)
 
-# Delete data
-db.delete_from("users", lambda u: u["id"] == 1)
+# 8. Perform an advanced query with operators
+print("\n--> Fetching users older than 30 (uses a full scan)...")
+older_users = db.select_from("users", filter_dict={'age': {'$gt': 30}})
+print(older_users)
+
+# 9. Update data using a filter
+print("\n--> Updating Charlie's city to 'Tokyo'...")
+def update_city(user):
+    user.city = "Tokyo"
+    return user
+db.update_entity("users", filter_dict={'name': 'Charlie'}, update_fn=update_city)
+
+# 10. Delete data using a filter
+print("\n--> Deleting user 102...")
+db.delete_from("users", filter_dict={'user_id': 102})
+
+# Verify by fetching all remaining users
+all_users = db.select_from("users")
+print(f"\nFinal users in DB: {all_users}")
 ```
 
 ## 📁 Directory Structure
