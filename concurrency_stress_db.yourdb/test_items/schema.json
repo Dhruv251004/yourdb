@@ -1,9 +1,0 @@
-{
-    "primary_key": "item_id",
-    "item_id": "int",
-    "thread_name": "str",
-    "value": "int",
-    "indexes": [
-        "value"
-    ]
-}
