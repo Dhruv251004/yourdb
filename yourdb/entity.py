@@ -210,7 +210,7 @@ class Entity:
 
         # ---  Use indexes to narrow down search space ---
         if indexed_fields:
-            print(f"Using indexes on fields: {indexed_fields}")
+            # print(f"Using indexes on fields: {indexed_fields}")
 
             # For each indexed field, find primary keys that match
             index_sets = []
@@ -232,8 +232,8 @@ class Entity:
 
             # Intersect sets for multi-index queries (AND logic)
             candidates = set.intersection(*index_sets) if index_sets else None
-        else:
-            print("No suitable index found. Performing full scan...")
+        # else:
+        #     print("No suitable index found. Performing full scan...")
 
         # --- Collect candidate records (from narrowed partitions if possible) ---
         results = []
