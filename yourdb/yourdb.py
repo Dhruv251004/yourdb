@@ -184,3 +184,8 @@ class YourDB:
         self.check_entity_existence(entity_name)
         self.entities[entity_name].update(filter_dict, update_fn)
 
+        #--- Aliases for consistency with test naming ---
+
+    def update_into(self, entity_name, filter_dict, update_fn):
+        """Alias for update_entity for API consistency."""
+        return self.update_entity(entity_name, filter_dict, update_fn)
