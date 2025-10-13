@@ -26,7 +26,7 @@ pip install .
 ```
 
 
-## 🏁 Quickstart
+## 🏁 Follow the Quickstart guide
 
 ```python
 # 1. Import the necessary components from yourdb
