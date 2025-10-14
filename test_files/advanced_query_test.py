@@ -1,4 +1,5 @@
-import os
+import sys, os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import shutil
 import time
 from yourdb.yourdb import YourDB
@@ -56,12 +57,14 @@ for emp in employees:
 
 # Verify data insertion
 print("\n--> Verifying inserted data...")
+
 all_employees = db.select_from("employees")
+
 print(f"Total employees in DB: {len(all_employees)}\n")
 for emp in all_employees:
     print(emp)
 
-# Define helper to time queries
+# helper to time queries
 def timed_query(description, entity, filter_dict):
     print(f"\n{description}")
     start = time.time()
