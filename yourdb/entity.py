@@ -282,31 +282,7 @@ class Entity:
                 return False  # short-circuit
         return True
 
-    # --- REWRITTEN: Delete and its helper now use the append-only log ---
-    # def _delete_from_partition(self, i, condition_fn):
-    #     records_to_delete = [
-    #         record for pk, record in self.data[i].items() if condition_fn(record)
-    #     ]
-    #     if not records_to_delete:
-    #         return
 
-    #     with open(self.file_paths[i], 'a') as f:
-    #         for record in records_to_delete:
-    #             pk_val = getattr(record, self.primary_key)
-
-    #             for field_name, index in self.indexes.items():
-    #                 value = getattr(record, field_name)
-    #                 if value in index:
-    #                     index[value].discard(pk_val)
-
-    #             log_entry = {"op": "DELETE", "pk": pk_val}
-    #             f.write(json.dumps(log_entry) + '\n')
-    #             # Update in-memory state
-    #             del self.data[i][pk_val]
-    #             self.primary_key_set.discard(pk_val)
-
-    #             self.write_counts[i] += 1
-    #             self._check_and_compact(i)
 
     def delete(self, filter_dict:dict):
         with self.lock.write():
@@ -338,50 +314,6 @@ class Entity:
                 self.write_counts[partition_index] += 1
                 self._check_and_compact(partition_index)
 
-
-    # Update and its helper now use the append-only log ---
-    # def _update_partition(self, i, condition_fn, update_fn):
-    #     records_to_update = [
-    #         record for pk, record in self.data[i].items() if condition_fn(record)
-    #     ]
-    #     if not records_to_update:
-    #         return
-
-    #     with open(self.file_paths[i], 'a') as f:
-    #         for record in records_to_update:
-    #             pk_val = getattr(record, self.primary_key)
-    #             old_index_values = {
-    #                 field_name: getattr(record, field_name)
-    #                 for field_name in self.indexes.keys()
-    #             }
-
-    #             # Apply the update function to a copy to see what changed
-    #             updated_record = update_fn(record)
-    #             for field_name, index in self.indexes.items():
-    #                 old_value = old_index_values[field_name]
-    #                 new_value = getattr(updated_record, field_name)
-    #                 if old_value != new_value:
-    #                     # Remove from old index entry
-    #                     if old_value in index:
-    #                         index[old_value].discard(pk_val)
-    #                     # Add to new index entry
-    #                     if new_value not in index:
-    #                         index[new_value] = set()
-    #                     index[new_value].add(pk_val)
-
-    #             update_payload = {
-    #                 k: v for k, v in updated_record.__dict__.items()
-    #                 if v != old_index_values.get(k)
-    #             }
-
-
-    #             if update_payload:
-    #                 log_entry = {"op": "UPDATE", "pk": pk_val, "data": update_payload}
-    #                 f.write(json.dumps(log_entry, cls=YourDBEncoder) + '\n')
-    #                 # The in-memory object is already updated by reference via update_fn
-
-    #                 self.write_counts[i] += 1
-    #                 self._check_and_compact(i)
 
     def update(self, filter_dict: dict, update_fn):
         """Finds records using get_data (which uses indexes) and then updates them."""

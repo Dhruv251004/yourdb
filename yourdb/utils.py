@@ -49,7 +49,7 @@ class YourDBEncoder(json.JSONEncoder):
     def default(self, obj):
         if hasattr(obj, '__dict__'):# A simple way to check if it's a custom object
             class_name = obj.__class__.__name__
-            if class_name not in SERIALIZABLE_CLASSES:
+            if class_name not in _CLASS_REGISTRY:
                 raise TypeError(f"Object of type {class_name} is not registered for serialization.Please use the @register_class decorator.")
 
             version = getattr(obj, '__version__', 1)
