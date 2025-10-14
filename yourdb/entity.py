@@ -2,7 +2,7 @@ import os
 import json
 from multiprocessing.dummy import Pool
 from functools import partial
-from .utils import YourDBEncoder, yourdb_decoder, SERIALIZABLE_CLASSES
+from .utils import YourDBEncoder, yourdb_decoder, SERIALIZABLE_CLASSES,_CLASS_REGISTRY
 from .compaction import Compactor
 import operator
 from .locking import RWLock
@@ -148,8 +148,8 @@ class Entity:
                 expected_type_str = self.schema[key]
                 expected_type = type_mapping.get(expected_type_str)
 
-                if expected_type is None and expected_type_str in SERIALIZABLE_CLASSES:
-                    expected_type = SERIALIZABLE_CLASSES[expected_type_str]
+                if expected_type is None and expected_type_str in _CLASS_REGISTRY :
+                    expected_type = _CLASS_REGISTRY[expected_type_str][0]
 
                 if value is not None and expected_type and not isinstance(value, expected_type):
                     raise TypeError(f"Field '{key}' expects type {expected_type.__name__} but got {type(value).__name__}.")

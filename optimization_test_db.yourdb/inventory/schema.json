@@ -1,0 +1,6 @@
+{
+    "primary_key": "item_id",
+    "item_id": "int",
+    "name": "str",
+    "quantity": "int"
+}
