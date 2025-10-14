@@ -147,9 +147,11 @@ class Entity:
             if key in self.schema:
                 expected_type_str = self.schema[key]
                 expected_type = type_mapping.get(expected_type_str)
+
                 if expected_type is None and expected_type_str in SERIALIZABLE_CLASSES:
                     expected_type = SERIALIZABLE_CLASSES[expected_type_str]
-                if expected_type and not isinstance(value, expected_type):
+
+                if value is not None and expected_type and not isinstance(value, expected_type):
                     raise TypeError(f"Field '{key}' expects type {expected_type.__name__} but got {type(value).__name__}.")
 
         primary_value = entity_dict.get(self.primary_key)
