@@ -26,7 +26,7 @@ pip install .
 ```
 
 
-## 🏁 Quickstart
+## 🏁 Follow the Quickstart guide
 
 ```python
 # 1. Import the necessary components from yourdb
@@ -36,63 +36,61 @@ from yourdb import YourDB, register_class
 # The @register_class decorator is essential for the database to handle your object.
 @register_class
 class User:
-    def __init__(self, user_id, name, city, is_active=True):
+    def __init__(self, user_id, name, city, age):
         self.user_id = user_id
         self.name = name
         self.city = city
-        self.is_active = is_active
-
+        self.age = age
+    
     def __repr__(self):
-        # A nice string representation for printing the object
-        return f"User(id={self.user_id}, name='{self.name}', city='{self.city}', active={self.is_active})"
+        return f"User(id={self.user_id}, name='{self.name}', city='{self.city}', age={self.age})"
 
-# 3. Initialize the database (this will create a 'my_app.yourdb' directory)
+# 3. Initialize the database
 db = YourDB("my_app")
 
-# 4. Define a schema for your entity, including which fields to index
+# 4. Define a schema, including which fields to index
 user_schema = {
     'primary_key': 'user_id',
     'user_id': "int",
     'name': "str",
     'city': "str",
-    'is_active': "bool",
-    'indexes': ['city'] # We'll create an index on the 'city' field for fast lookups
+    'age': "int",
+    'indexes': ['city'] # Create an index on 'city' for fast lookups
 }
 
-# 5. Create an entity (similar to a table)
+# 5. Create an entity (like a table)
 db.create_entity("users", user_schema)
 
-# 6. Insert your custom objects directly (no .to_dict() needed)
-print("--> Inserting 3 users...")
-db.insert_into("users", User(user_id=101, name="Alice", city="New York"))
-db.insert_into("users", User(user_id=102, name="Bob", city="London"))
-db.insert_into("users", User(user_id=103, name="Charlie", city="New York"))
+# 6. Insert your custom objects directly
+print("--> Inserting users...")
+db.insert_into("users", User(user_id=101, name="Alice", city="New York", age=28))
+db.insert_into("users", User(user_id=102, name="Bob", city="London", age=35))
+db.insert_into("users", User(user_id=103, name="Charlie", city="New York", age=42))
 
 # 7. Query data using an index for high performance
 print("\n--> Fetching users from 'New York' (uses the 'city' index)...")
 ny_users = db.select_from("users", filter_dict={'city': 'New York'})
 print(ny_users)
 
-# 8. Update data using a filter dictionary
-print("\n--> Deactivating Bob...")
-def deactivate_user(user):
-    user.is_active = False
+# 8. Perform an advanced query with operators
+print("\n--> Fetching users older than 30 (uses a full scan)...")
+older_users = db.select_from("users", filter_dict={'age': {'$gt': 30}})
+print(older_users)
+
+# 9. Update data using a filter
+print("\n--> Updating Charlie's city to 'Tokyo'...")
+def update_city(user):
+    user.city = "Tokyo"
     return user
+db.update_entity("users", filter_dict={'name': 'Charlie'}, update_fn=update_city)
 
-# The update operation will use a full scan because 'name' is not indexed
-db.update_entity("users", filter_dict={'name': 'Bob'}, update_fn=deactivate_user)
+# 10. Delete data using a filter
+print("\n--> Deleting user 102...")
+db.delete_from("users", filter_dict={'user_id': 102})
 
-# Verify the update by fetching the record again
-bob = db.select_from("users", filter_dict={'user_id': 102})[0]
-print(f"Verified update: {bob}")
-
-# 9. Delete data using a filter
-print("\n--> Deleting user 101...")
-db.delete_from("users", filter_dict={'user_id': 101})
-
-# Verify the deletion by fetching all remaining users
+# Verify by fetching all remaining users
 all_users = db.select_from("users")
-print(f"Final users in DB: {all_users}")
+print(f"\nFinal users in DB: {all_users}")
 ```
 
 ## 📁 Directory Structure

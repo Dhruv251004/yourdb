@@ -1,0 +1,11 @@
+{
+    "primary_key": "id",
+    "id": "int",
+    "name": "str",
+    "age": "int",
+    "is_active": "bool",
+    "indexes": [
+        "age",
+        "is_active"
+    ]
+}

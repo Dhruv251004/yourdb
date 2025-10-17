@@ -1,8 +1,9 @@
 import os
 import shutil
 import types
+import json
 from typing import Dict
-from .utils import is_valid_entity_name, is_valid_schema
+from .utils import is_valid_entity_name, is_valid_schema,YourDBEncoder, yourdb_decoder
 from .entity import Entity
 from multiprocessing import Pool
 
@@ -184,3 +185,61 @@ class YourDB:
         self.check_entity_existence(entity_name)
         self.entities[entity_name].update(filter_dict, update_fn)
 
+        #--- Aliases for consistency with test naming ---
+
+    def update_into(self, entity_name, filter_dict, update_fn):
+        """Alias for update_entity for API consistency."""
+        return self.update_entity(entity_name, filter_dict, update_fn)
+
+
+    def optimize_entity(self, entity_name):
+        """
+        Performs an eager migration on an entity.
+
+        This reads all data, applies all necessary schema upgrades, and writes
+        the fully upgraded data to new, clean log files. This process is safe
+        and atomic.
+        """
+
+        self.check_entity_existence(entity_name)
+        entity = self.entities[entity_name]
+        print(f"--- Starting optimization for entity '{entity_name}' ---")
+
+        # Acquire a write lock to prevent any other operations during optimization.
+        with entity.lock.write():
+            # 1. Get all data. The `get_data` call will trigger the lazy-read
+            #    upgraders, giving us a fully modern set of objects in memory.
+            all_records = entity._get_data_unlocked()
+
+            # 2. Prepare temporary new log files.
+            temp_files = [fp + ".optimizing" for fp in entity.file_paths]
+            temp_file_handles = [open(fp, 'w') for fp in temp_files]
+
+            try:
+                # 3. Re-partition the upgraded data and write to temp files.
+                for record in all_records:
+                    pk_val = getattr(record, entity.primary_key)
+                    partition = entity.hash_partition(pk_val)
+
+                    log_entry = {"op": "INSERT", "data": record}
+                    json_string = json.dumps(log_entry, cls=YourDBEncoder)
+                    temp_file_handles[partition].write(json_string + '\n')
+
+            except Exception as e:
+                print(f"ERROR during optimization: {e}. Aborting. No changes were made.")
+                # Clean up temp files on failure
+                for h in temp_file_handles: h.close()
+                for fp in temp_files: os.remove(fp)
+                return False
+            finally:
+                for h in temp_file_handles: h.close()
+
+            # 4. ATOMIC SWAP: Replace old logs with new ones.
+            print("Optimization successful. Swapping to new log files...")
+            for i in range(entity.num_partitions):
+                os.replace(temp_files[i], entity.file_paths[i])
+
+            # 5. Reload the entity's in-memory state from the new, clean logs.
+            entity._load_from_logs()
+            print(f"--- Optimization for '{entity_name}' complete. ---")
+            return True
