@@ -5,6 +5,8 @@
 It allows developers to define entities using Python dictionaries (or class-like schemas), insert objects, and perform filtering, updating, or deleting — all using native Python.
 
 ---
+**➡️ View the live documentation site deployed on Vercel:** [https://vercel.com/aayushman-guptas-projects/your-db-official-docs](https://your-db-official-docs.vercel.app/)
+---
 
 ## 🔍 Features
 
