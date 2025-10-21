@@ -34,68 +34,67 @@ pip install .
 ## 🏁 Follow the Quickstart guide
 
 ```python
-# 1. Import the necessary components from yourdb
-from yourdb import YourDB, register_class
+from yourdb import YourDB, register_class, register_upgrade
 
-# 2. Define your data model as a standard Python class
-# The @register_class decorator is essential for the database to handle your object.
+# --- 1. Define Your Data Model (Initial Version) ---
 @register_class
 class User:
-    def __init__(self, user_id, name, city, age):
-        self.user_id = user_id
+    __version__ = 1
+    def __init__(self, name, email):
+        self.user_id = None
         self.name = name
-        self.city = city
-        self.age = age
-    
+        self.email = email
     def __repr__(self):
-        return f"User(id={self.user_id}, name='{self.name}', city='{self.city}', age={self.age})"
+        return f"User(v{self.__version__}, id={self.user_id}, name='{self.name}', email='{self.email}')"
 
-# 3. Initialize the database
-db = YourDB("my_app")
-
-# 4. Define a schema, including which fields to index
+# --- 2. Initialize Database & Entity ---
+db = YourDB("my_app_db")
 user_schema = {
     'primary_key': 'user_id',
     'user_id': "int",
     'name': "str",
-    'city': "str",
-    'age': "int",
-    'indexes': ['city'] # Create an index on 'city' for fast lookups
+    'email': "str",
+    'indexes': ['email'] # Index the email field
 }
-
-# 5. Create an entity (like a table)
+# Creates entity if it doesn't exist, loads if it does
 db.create_entity("users", user_schema)
 
-# 6. Insert your custom objects directly
-print("--> Inserting users...")
-db.insert_into("users", User(user_id=101, name="Alice", city="New York", age=28))
-db.insert_into("users", User(user_id=102, name="Bob", city="London", age=35))
-db.insert_into("users", User(user_id=103, name="Charlie", city="New York", age=42))
+# --- 3. Insert Data ---
+alice = User(name="Alice Smith", email="alice@example.com")
+alice.user_id = 101
+db.insert_into("users", alice)
 
-# 7. Query data using an index for high performance
-print("\n--> Fetching users from 'New York' (uses the 'city' index)...")
-ny_users = db.select_from("users", filter_dict={'city': 'New York'})
-print(ny_users)
+# --- 4. Select Data ---
+retrieved_alice = db.select_from("users", {'email': 'alice@example.com'})[0]
+print(f"Found: {retrieved_alice}")
 
-# 8. Perform an advanced query with operators
-print("\n--> Fetching users older than 30 (uses a full scan)...")
-older_users = db.select_from("users", filter_dict={'age': {'$gt': 30}})
-print(older_users)
+# --- 5. Evolve Schema (Example) ---
+# Imagine you deploy new code with User v2 and an upgrader
 
-# 9. Update data using a filter
-print("\n--> Updating Charlie's city to 'Tokyo'...")
-def update_city(user):
-    user.city = "Tokyo"
-    return user
-db.update_entity("users", filter_dict={'name': 'Charlie'}, update_fn=update_city)
+@register_upgrade("User", from_version=1, to_version=2)
+def upgrade_v1_to_v2(data):
+    data['status'] = 'active' # Add a new field with a default
+    return data
 
-# 10. Delete data using a filter
-print("\n--> Deleting user 102...")
-db.delete_from("users", filter_dict={'user_id': 102})
+@register_class
+class User: # Redefine the class in your new code
+    __version__ = 2
+    def __init__(self, name, email, status='active'):
+        self.user_id = None
+        self.name = name
+        self.email = email
+        self.status = status
+    def __repr__(self):
+         return f"User(v{self.__version__}, id={self.user_id}, name='{self.name}', email='{self.email}', status='{self.status}')"
 
-# Verify by fetching all remaining users
-all_users = db.select_from("users")
-print(f"\nFinal users in DB: {all_users}")
+# --- 6. Read Data After Evolution ---
+# Re-initialize DB instance simulates app restart with new code
+db_reloaded = YourDB("my_app_db")
+alice_v2 = db_reloaded.select_from("users", {'user_id': 101})[0]
+print(f"After Evolution: {alice_v2}") # Alice is now a v2 object with status='active'!
+
+# --- 7. Optimize (Optional) ---
+# db_reloaded.optimize_entity("users") # Rewrites log files to contain only v2 data
 ```
 
 ## 📁 Directory Structure
