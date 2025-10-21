@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yourdb"
-version = "0.1.1"
+version = "0.2.0"
 description = "A Python-native object database"
 readme = "README.md"
 authors = [
@@ -20,7 +20,7 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/Dhruv251004/yourdb"
-Documentation = "https://github.com/Dhruv251004/yourdb#readme"
+Documentation = "https://your-db-official-docs.vercel.app/"
 Repository = "https://github.com/Dhruv251004/yourdb"
 
 [tool.setuptools]

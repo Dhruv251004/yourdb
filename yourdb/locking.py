@@ -1,4 +1,3 @@
-# In yourdb/locking.py
 import threading
 
 class RWLock:

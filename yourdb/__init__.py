@@ -16,4 +16,4 @@ from .utils import is_valid_entity_name, is_valid_schema, register_class
 
 # Explicitly define exports
 __all__ = ['YourDB', 'Entity', 'is_valid_entity_name',
-           'is_valid_schema', 'register_class']
+           'is_valid_schema', 'register_class', 'register_upgrade']
