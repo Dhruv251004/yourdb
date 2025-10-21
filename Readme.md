@@ -119,3 +119,13 @@ yourdb/
     ├── utils.py        # Serialization, validation, schema evolution helpers
     └── yourdb.py       # Main public API (YourDB class)
 </pre>
+
+
+## 🤝 Contributing & Roadmap
+Contributions are welcome! Please feel free to open an issue or submit a pull request.
+
+Our near-term roadmap includes:
+
+*   🚀 Performance optimization for indexed range queries.
+
+*   ⏳ Implementing Time-Travel Queries based on the log history.
