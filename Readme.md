@@ -10,12 +10,15 @@ It allows developers to define entities using Python dictionaries (or class-like
 
 ## 🔍 Features
 
-- 🧱 Define custom entities with schema validation
-- 📦 Store any Python dictionary or object (pickle-backed)
-- 🧠 Functional querying with lambda conditions
-- 🛠 Update & delete data using custom logic
-- 💾 Persistent storage using `pickle` under the hood
-- 🔍 Future extensibility for SQL-like syntax and class-based schemas
+* 🚀 **Object-Native Persistence**: Your classes *are* the database. Use the `@register_class` decorator on your Python classes and store/retrieve instances directly. `yourdb` handles serialization automatically.
+* 🧬 **Hybrid Schema Evolution**: Effortlessly evolve your data models over time without risky migration scripts!
+    * **Lazy Read:** Automatically upgrades old data objects *in memory* on-the-fly using simple `@register_upgrade` functions. Your application code only ever sees the latest version.
+    * **Eager Migration:** An optional `db.optimize_entity()` tool safely rewrites data files *on disk* to the latest version for performance tuning.
+* ⚡ **High-Performance & Thread-Safe**: Built on an append-only log for fast writes and an in-memory cache for rapid reads. A robust **writer-preference lock** ensures data integrity under high concurrency.
+* 🧠 **Advanced Querying**: Go beyond simple lookups. Use a `filter_dict` with MongoDB-style operators like `$gt`, `$lt`, `$gte`, `$lte`, and `$ne` for expressive queries.
+* 🔍 **Indexing**: Define indexes on specific fields within your schema to significantly accelerate lookups for common queries.
+* ⚙️ **Automatic Compaction**: A background process automatically cleans up log files, removing redundant data to save space and speed up load times.
+* 🌐 **Zero-Dependency**: Pure Python. No external database servers to install or manage. Perfect for serverless, edge, desktop apps, or simplifying your stack.
 
 ---
 
