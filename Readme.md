@@ -112,9 +112,10 @@ yourdb/
 │   └── main.py
 │
 └── yourdb/             # The core source code of the database package
-    ├── __init__.py     # Makes 'yourdb' a Python package
-    ├── compaction.py   # Handles log file compaction logic
-    ├── entity.py       # Core storage engine and entity-level logic
-    ├── utils.py        # Serialization, validation, and helper functions
-    └── yourdb.py       # Main public API and DB interface
+    ├── __init__.py     # Package definition & public exports
+    ├── compaction.py   # Log file compaction logic
+    ├── entity.py       # Core storage engine, in-memory cache, indexing
+    ├── locking.py      # Reader-Writer lock for concurrency
+    ├── utils.py        # Serialization, validation, schema evolution helpers
+    └── yourdb.py       # Main public API (YourDB class)
 </pre>
